@@ -2,9 +2,10 @@
 <head>
   <title>ACME Travel Agency - Vacation Destination Assistant</title>
   <link
-    rel="shortcut icon"
+    rel="icon"
     href="{{ url_for('static', filename='beach.png') }}"
-{#    https://www.flaticon.com/free-icon/beach_3175199?term=beach&page=1&position=5&origin=search&related_id=3175199#}
+{#    https://www.flaticon.com/free-icon/beach_3175199?term=beach&page=1&
+position=5&origin=search&related_id=3175199#}
   />
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}" />
 </head>
@@ -17,8 +18,8 @@
       Who is with you?
   </h3>
   <form action="/" method="post">
-    <input type="text" name="user_input"
-           placeholder="Enter your vacation dreams..." required />
+    <textarea name="user_input"
+           placeholder="Enter your vacation dreams..." required></textarea>
     <input type="submit" value="Recommend a destination package!" />
   </form>
   {% if result %}
