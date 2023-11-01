@@ -1,3 +1,12 @@
+# Vacation Package Recommendation App
+
+This application was originally developed for MET CS664 as an exploration of the ChatGPT API. It basically functions as a single-purpose chatbot application for a fictional travel agency:
+   1. It prompts the user to briefly describe their ideal vacation.
+   2. It then generates a brief "sales pitch" to recommend a vacation package from those offered by the agency, suitable to the user's desires.
+
+The skeleton of the application is based on a simple introductory Python Flask app (Pet Name Generator) offered as a quickstart tutorial by OpenAI. See original documentation below.
+
+
 # OpenAI API Quickstart - Python example app
 
 This is an example pet name generator app used in the OpenAI API [quickstart tutorial](https://beta.openai.com/docs/quickstart). It uses the [Flask](https://flask.palletsprojects.com/en/2.0.x/) web framework. Check out the tutorial or follow the instructions below to get set up.
