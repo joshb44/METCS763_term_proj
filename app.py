@@ -3,6 +3,7 @@ import json
 import random
 import openai
 from flask import Flask, redirect, render_template, request, url_for
+import sqlite3
 
 from VacationPackages import VacationPackages
 
@@ -11,10 +12,13 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 vacation_packages = VacationPackages()
 
+db_name = "vacation_packages.db"
+
 
 @app.route("/", methods=("GET", "POST"))
 def index():
     if request.method == "POST":
+
         user_input = request.form["user_input"]
 
         sentiment_prompt = generate_sentiment_analysis_prompt(user_input)
@@ -26,6 +30,8 @@ def index():
                        "content": sentiment_prompt}])
 
         parsed_sentiments = json.loads(response.choices[0].message['content'])
+
+        test_database(parsed_sentiments)
 
         filtered_packages = filter_packages_by_sentiments(parsed_sentiments)
 
@@ -160,3 +166,49 @@ def generate_package_sales_pitch_prompt(package, parsed_sentiments, tones):
                                                 tone=tone,
                                                 environment=environment,
                                                 companions=companions)
+
+# Function to build a parameterized SQL query from a dictionary
+def build_query(filters):
+    placeholders = []
+
+    for column, value in filters.items():
+        # Enclose the column name in double quotation marks
+        placeholders.append('"{0}" = 1'.format(value))
+
+    # Combine the placeholders with 'AND' for the WHERE clause
+    where_clause = " AND ".join(placeholders)
+
+    query = f"""
+    SELECT destination
+    FROM packages
+    WHERE {where_clause};
+    """
+    return query
+
+
+def test_database(parsed_sentiments):
+    # Example: Specify the columns and values to query at runtime as a dictionary
+    # filters = {'vacation_type': 'Relaxing', 'environment': 'Beach',
+    #            'companions': 'Alone'}
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    # Build the parameterized query and values
+    query = build_query(parsed_sentiments)
+
+    # Execute the query with the specified values
+    cursor.execute(query)
+    destinations = cursor.fetchall()
+
+    # Close the connection
+    conn.close()
+
+    # Print the destinations
+    if destinations:
+        print("Destinations meeting the criteria:")
+        for destination in destinations:
+            print(destination[0])
+    else:
+        print("No destinations found that meet the criteria.")
