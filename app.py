@@ -2,15 +2,12 @@ import os
 import json
 import random
 import openai
-from flask import Flask, redirect, render_template, request, url_for
 import sqlite3
-
-from VacationPackages import VacationPackages
+from flask import Flask, redirect, render_template, request, url_for
 
 app = Flask(__name__)
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
-vacation_packages = VacationPackages()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 db_name = "vacation_packages.db"
 
@@ -31,14 +28,24 @@ def index():
 
         parsed_sentiments = json.loads(response.choices[0].message['content'])
 
-        test_database(parsed_sentiments)
+        # Retrieve destinations that fit the sentiments expressed
+        # in the user's input
+        filtered_destinations = \
+            query_database_for_destinations(parsed_sentiments)
 
-        filtered_packages = filter_packages_by_sentiments(parsed_sentiments)
+        if len(filtered_destinations) > 1:
+            destination = select_package(filtered_destinations)
+        else:
+            destination = filtered_destinations[0]
 
-        package = select_package(filtered_packages)
+        # Retrieve the language tone suitable for the desired vacation type
+        tone = query_database_for_tone(parsed_sentiments['vacation_type'])
 
-        pitch_prompt = generate_package_sales_pitch_prompt(package, parsed_sentiments,
-                                   vacation_packages.tones)
+        # Prompt ChatGPT to generate a "sales pitch" for the destination using
+        # the appropriate tone
+        pitch_prompt = generate_package_sales_pitch_prompt(destination,
+                                                           parsed_sentiments,
+                                                           tone)
 
         print(pitch_prompt, '\n')
 
@@ -46,7 +53,9 @@ def index():
             model="gpt-3.5-turbo",
             messages=[{"role": "user",
                        "content": pitch_prompt}])
-        return redirect(url_for("index", result=response.choices[0].message['content']))
+
+        return redirect(url_for(
+            "index", result=response.choices[0].message['content']))
 
     result = request.args.get("result")
     return render_template("index.html", result=result)
@@ -88,87 +97,55 @@ def generate_sentiment_analysis_prompt(user_input):
 	include only the JSON object.""".format(user_input=user_input)
 
 
-def filter_packages_by_sentiments(parsed_sentiments):
-    """
-    Uses our three 'Sentiments' (Vacation Type, Environment, and Companions) to
-    filter our available packages down to those that meet the user's desires.
-
-    :param parsed_sentiments: A dict of three sentiments
-    :return: a dict of filtered packages
-    """
-    dests_filtered_by_type = \
-        {key: values for key, values in vacation_packages.destinations.items()
-         if parsed_sentiments['vacation_type'] in values}
-
-    dests_filtered_by_env = \
-        {key: values for key, values in dests_filtered_by_type.items()
-         if parsed_sentiments['environment'] in values}
-
-    # Note that if a sentiment finds no match, we want to revert to the previous
-    # stage of filtration rather than abandoning all packages
-    if not dests_filtered_by_env:
-        dests_filtered_by_env = dests_filtered_by_type
-
-    dests_filtered_by_comp = \
-        {key: values for key, values in dests_filtered_by_env.items()
-         if parsed_sentiments['companions'] in values}
-
-    if not dests_filtered_by_comp:
-        dests_filtered_by_comp = dests_filtered_by_env
-
-    return dests_filtered_by_comp
-
 def select_package(filtered_packages):
     """
-    In the event that more than one package passes all sentiment filters, simply
-    choose a random one.
+    In the event that more than one matching package is retrieved from the
+    database, simply choose a random one.
 
-    :param filtered_packages: A dict of all packages that passed the filters
+    :param filtered_packages: A dict of all packages that passed query filter
     :return: a dict with a single package
     """
     random_package = dict([random.choice(list(filtered_packages.items()))])
 
     return random_package
 
-def generate_package_sales_pitch_prompt(package, parsed_sentiments, tones):
+
+def generate_package_sales_pitch_prompt(destination, parsed_sentiments, tone):
     """
     Construct a prompt for the OpenAI API to request that the AI model craft a
     tailored response to the user which consists of a sales pitch for a locale
     with an appropriate tone and details all specified by the application.
 
-    :param package: the selected package
+    :param destination: the matched destination
     :param parsed_sentiments: the sentiments returned from the initial prompt
-    :param tones: a dict of tones that match vacation types
+    :param tone: the language tone that matches the vacation type
     :return: The formatted text to be sent to OpenAI API.
     """
-    locale = list(package.keys())[0]
-    type = ""
-    environment = ""
-    companions = ""
-    tone = ""
+    type = parsed_sentiments['vacation_type']
 
-    if parsed_sentiments['vacation_type'] in list(package.values())[0]:
-        type = parsed_sentiments['vacation_type']
-        tone = tones[type]
+    environment = parsed_sentiments['environment']
 
-    if parsed_sentiments['environment'] in list(package.values())[0]:
-        environment = parsed_sentiments['environment']
-
-    if parsed_sentiments['companions'] in list(package.values())[0]:
-        companions = parsed_sentiments['companions']
+    companions = parsed_sentiments['companions']
 
     return """Pretend you are a travel agent making a first-time recommendation
-     to a customer that they purchase a package to visit {locale}. Use a 
-     positive {tone} tone and emphasize the qualities about {locale} that 
+     to a customer that they purchase a package to visit {destination}. Use a 
+     positive {tone} tone and emphasize the qualities about {destination} that 
      make it a great {type} place. Emphasize the allure of its {environment} 
      setting as well as its appeal to those traveling {companions}. Confine your 
-     response to a single paragraph. """.format(locale=locale, type=type,
+     response to a single paragraph. """.format(destination=destination,
+                                                type=type,
                                                 tone=tone,
                                                 environment=environment,
                                                 companions=companions)
 
-# Function to build a parameterized SQL query from a dictionary
-def build_query(filters):
+
+def build_destination_query(filters):
+    """
+    Builds a parameterized SQL query filtered by dictionary of "sentiments"
+
+    :param filters: dictionary of sentiments
+    :return: a SQL query statement
+    """
     placeholders = []
 
     for column, value in filters.items():
@@ -186,17 +163,20 @@ def build_query(filters):
     return query
 
 
-def test_database(parsed_sentiments):
-    # Example: Specify the columns and values to query at runtime as a dictionary
-    # filters = {'vacation_type': 'Relaxing', 'environment': 'Beach',
-    #            'companions': 'Alone'}
+def query_database_for_destinations(parsed_sentiments):
+    """
+    Query the database for vacation destinations that match the user's
+    sentiments.
 
+    :param parsed_sentiments: a dict of sentiments
+    :return: an array of destination names
+    """
     # Connect to the SQLite database
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
     # Build the parameterized query and values
-    query = build_query(parsed_sentiments)
+    query = build_destination_query(parsed_sentiments)
 
     # Execute the query with the specified values
     cursor.execute(query)
@@ -209,6 +189,42 @@ def test_database(parsed_sentiments):
     if destinations:
         print("Destinations meeting the criteria:")
         for destination in destinations:
-            print(destination[0])
+            print(destination)
+
+        return destinations
     else:
         print("No destinations found that meet the criteria.")
+
+
+def query_database_for_tone(vacation_style):
+    """
+    Query the database to retrieve the appropriate language tone for the style
+    of vacation desired.
+
+    :param vacation_style: the style of vacation desired
+    :return: a language tone
+    """
+    # Connect to the SQLite database
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    query = f"""
+    SELECT tone
+    FROM tones
+    WHERE style = "{vacation_style}";
+    """
+
+    # Execute the query with the specified values
+    cursor.execute(query)
+    tone = cursor.fetchone()
+
+    # Close the connection
+    conn.close()
+
+    # Print the destinations
+    if tone:
+        print("Tone meeting the criteria:")
+        print(tone)
+        return(tone)
+    else:
+        print("No tone found that meets the criteria.")
