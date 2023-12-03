@@ -311,5 +311,6 @@ def query_database_for_tone(vacation_style):
     else:
         print("No tone found that meets the criteria.")
 
-if __name__ == "__main__":
+
+if __name__ == "__app__":
     app.run()
