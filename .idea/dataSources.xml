@@ -13,7 +13,7 @@
         </library>
       </libraries>
     </data-source>
-    <data-source source="LOCAL" name="users.db" uuid="59261baf-f8ac-4a93-be9c-6e5a391bd1e5">
+    <data-source source="LOCAL" name="users.db" uuid="32edc908-ff1e-4379-9fb4-f381dcf4cfed">
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>

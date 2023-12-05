@@ -3,9 +3,12 @@ import json
 import random
 import openai
 import sqlite3
+from urllib.parse import urlsplit
 from flask import Flask, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user
+from flask_login import LoginManager, UserMixin, login_user, logout_user, \
+    login_required
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 
@@ -15,30 +18,36 @@ db_name = "vacation_packages.db"
 
 users_db_name = "users.db"
 
-# Tells flask-sqlalchemy what database to connect to
+# Sets up connection for users database. This is kept separate from database
+# of vacation package information, which is not as sensitive.
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///{0}".format(users_db_name)
-# Enter a secret key
-app.config["SECRET_KEY"] = "k%$A84#!tUK"
-# Initialize flask-sqlalchemy extension
+
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
+
 db = SQLAlchemy()
 
-# LoginManager is needed for our application
-# to be able to log in and out users
+# LoginManager for logging user in and out
 login_manager = LoginManager()
 login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 
 class Users(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(250), unique=True,
                          nullable=False)
-    password = db.Column(db.String(250),
-                         nullable=False)
+    password_hash = db.Column(db.String(256),
+                             nullable=False)
+
+    # These two methods provide functionality to encrypt/decrypt passwords
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
 
-# Initialize app with extension
 db.init_app(app)
-# Create database within app context
 
 with app.app_context():
     db.create_all()
@@ -52,12 +61,12 @@ def loader_user(user_id):
 
 @app.route("/")
 def home():
-    # Render home.html on "/" route
     return render_template("home.html")
 
 
 @app.route("/vacation", methods=("GET", "POST"))
-def index():
+@login_required
+def propose_vacation():
     if request.method == "POST":
 
         user_input = request.form["user_input"]
@@ -99,7 +108,7 @@ def index():
                        "content": pitch_prompt}])
 
         return redirect(url_for(
-            "index", result=response.choices[0].message['content']))
+            "propose_vacation", result=response.choices[0].message['content']))
 
     result = request.args.get("result")
     return render_template("vacation.html", result=result)
@@ -109,8 +118,12 @@ def index():
 def register():
     # If the user made a POST request, create a new user
     if request.method == "POST":
-        user = Users(username=request.form.get("username"),
-                     password=request.form.get("password"))
+
+        user = Users(username=request.form.get("username"))
+
+        # Add the hashed password to new user
+        user.set_password(request.form.get("password"))
+
         # Add the user to the database
         db.session.add(user)
         # Commit the changes made
@@ -130,13 +143,15 @@ def login():
         user = Users.query.filter_by(
             username=request.form.get("username")).first()
         # Check if the password entered is the
-        # same as the user's password
-        if user.password == request.form.get("password"):
+        # same as the user's hashed password
+        if user.check_password(request.form.get("password")):
             # Use the login_user method to log in the user
             login_user(user)
-            return redirect(url_for("home"))
-    # Redirect the user back to the home
-    # (we'll create the home route in a moment)
+            next_page = request.args.get('next')
+            if not next_page or urlsplit(next_page).netloc != '':
+                next_page = url_for('home')
+            return redirect(next_page)
+    # Redirect the user back to the login
     return render_template("login.html")
 
 

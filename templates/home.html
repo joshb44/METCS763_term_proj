@@ -20,6 +20,8 @@
 	</nav>
 	{% if current_user.is_authenticated %}
 	<h1>You are logged in</h1>
+    <a href="/vacation">Find your dream vacation now!</a>
+    <br/>
 	<a href="/logout">Logout</a>
 	{% else %}
 	<h1>You are not logged in</h1>
